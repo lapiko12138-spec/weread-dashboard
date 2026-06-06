@@ -311,13 +311,33 @@ function localInsights(monthly, noteTop) {
   ];
 }
 
+function buildCoverMap(shelfAll) {
+  const map = new Map();
+  for (const item of unwrapItems(shelfAll)) {
+    const source = item.book || item.bookInfo || item;
+    const bookId = String(item.bookId || source.bookId || "");
+    const cover = item.cover || source.cover || "";
+    if (bookId && cover) map.set(bookId, cover);
+  }
+  return map;
+}
+
+function enrichCovers(books, coverMap) {
+  return books.map((book) => {
+    if (book.cover || !book.bookId) return book;
+    const cover = coverMap.get(String(book.bookId));
+    return cover ? { ...book, cover } : book;
+  });
+}
+
 async function buildDashboard(raw) {
   const monthly = raw.monthly?.data || {};
   const annually = raw.annually?.data || {};
-  const recentBooks = unwrapItems(raw.recent).map(compactRecent);
-  const notebooksRaw = unwrapItems(raw.notebooks).map(compactNotebook);
-  const noteTop = unwrapItems(raw.noteTop).map(compactNotebook);
-  const readLongest = (monthly.readLongest || []).map(compactReadLongest);
+  const coverMap = buildCoverMap(raw.shelfAll);
+  const recentBooks = enrichCovers(unwrapItems(raw.recent).map(compactRecent), coverMap);
+  const notebooksRaw = enrichCovers(unwrapItems(raw.notebooks).map(compactNotebook), coverMap);
+  const noteTop = enrichCovers(unwrapItems(raw.noteTop).map(compactNotebook), coverMap);
+  const readLongest = enrichCovers((monthly.readLongest || []).map(compactReadLongest), coverMap);
   const featuredBooks = await buildFeaturedBooks({ recentBooks, readLongest, noteTop });
   const categories = (monthly.preferCategory || []).filter((item) => Number(item.readingTime || 0) > 0);
 
@@ -365,15 +385,16 @@ async function fetchSummaryData(monthKey = currentMonthKey()) {
   const monthlyArgs = ["readdata", "detail", "--mode", "monthly"];
   if (monthKey !== currentMonthKey()) monthlyArgs.push("--base-time", String(monthBaseTime(monthKey)));
 
-  const [monthly, annually, recent, notebooks, noteTop] = await Promise.all([
+  const [monthly, annually, recent, notebooks, noteTop, shelfAll] = await Promise.all([
     runWereadJson(monthlyArgs, { maxBuffer: 24 * 1024 * 1024 }),
     runWereadJson(["readdata", "detail", "--mode", "annually"], { maxBuffer: 24 * 1024 * 1024 }),
     runWereadJson(["--compact", "shelf", "recent", "--limit", "12"]),
     runWereadJson(["notes", "notebooks", "--count", "100"], { maxBuffer: 24 * 1024 * 1024 }),
-    runWereadJson(["--compact", "notes", "top", "--limit", "10"], { maxBuffer: 24 * 1024 * 1024 })
+    runWereadJson(["--compact", "notes", "top", "--limit", "10"], { maxBuffer: 24 * 1024 * 1024 }),
+    runWereadJson(["--compact", "shelf", "list"], { maxBuffer: 24 * 1024 * 1024 }).catch(() => null)
   ]);
 
-  return { monthKey, monthly, annually, recent, notebooks, noteTop };
+  return { monthKey, monthly, annually, recent, notebooks, noteTop, shelfAll };
 }
 
 async function refreshData({ force = false } = {}) {
