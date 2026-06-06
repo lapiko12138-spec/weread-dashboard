@@ -886,6 +886,52 @@ a {
   margin: 0 0 16px;
 }
 
+.report-content ul {
+  margin: 0 0 16px;
+  padding-left: 20px;
+}
+
+.report-content ul li {
+  margin-bottom: 6px;
+  line-height: 1.75;
+}
+
+.report-content strong {
+  color: var(--green-dark);
+  font-weight: 600;
+}
+
+.report-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  vertical-align: middle;
+  margin-left: 8px;
+  letter-spacing: 0.02em;
+}
+
+.report-badge.locked {
+  background: #e8f0e0;
+  color: var(--green-dark);
+  border: 1px solid #c5d9b0;
+}
+
+.report-badge.current {
+  background: #fff5d6;
+  color: #8a6200;
+  border: 1px solid #f0d870;
+}
+
+.report-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
 .empty-state {
   min-height: 320px;
   display: grid;

@@ -10,6 +10,16 @@ const execFileAsync = promisify(execFile);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
+
+// Auto-load .env from project root — persists API keys across restarts
+try {
+  const envLines = (await readFile(path.join(ROOT_DIR, ".env"), "utf8")).split("\n");
+  for (const line of envLines) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(["']?)(.+?)\2\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[3];
+  }
+} catch {}
+
 const DATA_DIR = path.join(ROOT_DIR, "data");
 const SNAPSHOT_DIR = path.join(DATA_DIR, "snapshots");
 const REPORT_DIR = path.join(DATA_DIR, "reports");
@@ -580,30 +590,74 @@ async function valuableNotes({ force = false, month = null } = {}) {
   return payload;
 }
 
-function reportPrompt(dashboard, notes) {
+function reportPrompt(dashboard, notes, { isCurrentMonth = false } = {}) {
   const payload = {
-    month: dashboard.monthLabel,
+    period: isCurrentMonth
+      ? `${dashboard.monthLabel}（本月至今，数据未完结）`
+      : `${dashboard.monthLabel}（历史完整月份）`,
     stats: dashboard.stats,
-    categories: dashboard.categories,
+    categories: dashboard.categories.slice(0, 6),
     readLongest: dashboard.readLongest.slice(0, 5),
     featuredBooks: dashboard.featuredBooks.slice(0, 6),
     noteTop: dashboard.noteTop.slice(0, 8),
-    highValueNotes: notes.highlights.slice(0, 10).map((item) => ({
+    highValueNotes: notes.highlights.slice(0, 14).map((item) => ({
       book: item.title,
       type: item.type,
-      text: item.text,
-      idea: item.content
-    }))
+      date: item.createdAt,
+      text: item.text ? item.text.slice(0, 200) : undefined,
+      idea: item.content ? item.content.slice(0, 400) : undefined
+    })).filter((n) => n.text || n.idea)
   };
 
-  return `请基于以下微信读书本地缓存，生成一份私人月度阅读复盘。要求中文、克制、具体，不要编造未给出的事实。输出四段：1. 本月阅读状态；2. 主题偏好；3. 关键书本与笔记洞察；4. 下月阅读建议。\n\n${JSON.stringify(payload, null, 2)}`;
+  if (isCurrentMonth) {
+    return `你是私人阅读教练。以下是用户${dashboard.monthLabel}至今的微信读书真实数据，本月尚未结束。
+
+请生成一份阶段性进度分析，要求：
+- 直接引用数据里的书名、具体笔记文字，不泛泛而谈
+- 突出本月相比上期的变化亮点（比较字段 stats.compareText）
+- 如果笔记里有值得展开的想法，单独点出来
+- 给出针对本月剩余时间的 2-3 条具体可执行建议（不要套话）
+
+输出结构（每段用 **标题** 开头）：
+**本月进展** · **笔记亮点** · **偏好分析** · **剩余时间建议**
+
+---
+${JSON.stringify(payload, null, 2)}`;
+  }
+
+  return `你是私人阅读教练。以下是用户${dashboard.monthLabel}的完整微信读书历史数据，该月已结束。
+
+请生成一份月度深度复盘，要求：
+- 每段必须引用真实数字和具体书名/笔记
+- 笔记洞察段要引用 highValueNotes 里的原文或想法，并点出其中最值得延伸的思考
+- 分析偏好时结合 categories 和 readLongest 给出具体结论，不要空泛
+- 对下月的建议要基于本月留白（比如读完率低、某类书没有笔记等）
+
+输出结构（每段用 **标题** 开头）：
+**月度总结** · **主题偏好** · **笔记深析** · **下月建议**
+
+---
+${JSON.stringify(payload, null, 2)}`;
 }
 
 async function generateMonthlyReport({ monthKey, force = false } = {}) {
   const targetMonth = monthKey || currentMonthKey();
+  const nowMonth = currentMonthKey();
+  const isPastMonth = targetMonth < nowMonth;
+  const isCurrentMonth = targetMonth === nowMonth;
+
   const reportFile = path.join(REPORT_DIR, `${targetMonth}.json`);
   const cached = await readJson(reportFile, null);
-  if (!force && cached?.content) return { ...cached, cached: true };
+
+  // Past months are frozen — generate once, never regenerate unless force=true
+  if (isPastMonth && cached?.content && !force) {
+    return { ...cached, cached: true, locked: true };
+  }
+  // Current month: always regenerate (data keeps changing) unless force=false and cache is fresh (<1h)
+  if (isCurrentMonth && cached?.content && !force) {
+    const age = Date.now() - new Date(cached.generatedAt || 0).getTime();
+    if (age < 60 * 60 * 1000) return { ...cached, cached: true, isCurrentMonth: true, locked: false };
+  }
 
   const usesAnthropic = Boolean(process.env.ANTHROPIC_API_KEY);
   const usesDeepSeek = Boolean(process.env.DEEPSEEK_API_KEY);
@@ -615,8 +669,8 @@ async function generateMonthlyReport({ monthKey, force = false } = {}) {
 
   const cache = await getDashboardForMonth(targetMonth);
   const notes = await valuableNotes({ month: targetMonth });
-  const systemPrompt = "你是一个高级阅读复盘产品里的私人阅读教练。你只根据输入数据总结，不夸张，不鸡汤。";
-  const userPrompt = reportPrompt(cache.dashboard, notes);
+  const systemPrompt = "你是一个高级阅读复盘产品里的私人阅读教练。你只根据用户真实数据分析，引用具体书名和笔记原文，不鸡汤，不泛泛而谈。";
+  const userPrompt = reportPrompt(cache.dashboard, notes, { isCurrentMonth });
 
   let content;
   let usedModel;
@@ -677,6 +731,8 @@ async function generateMonthlyReport({ monthKey, force = false } = {}) {
     model: usedModel,
     provider: usesAnthropic ? "anthropic" : "deepseek",
     generatedAt: new Date().toISOString(),
+    locked: isPastMonth,
+    isCurrentMonth,
     content,
   };
   await writeJson(reportFile, report);

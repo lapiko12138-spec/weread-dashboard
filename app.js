@@ -750,33 +750,75 @@ function notesView() {
 function reportView() {
   const d = state.dashboard;
   const aiConfigured = state.isDemoMode || state.status?.ai?.configured || d?.ai?.configured;
-  const reportButton = state.isDemoMode ? "查看样例报告" : (state.isReportLoading ? "生成中" : "生成报告");
+  const nowMonth = new Date().toISOString().slice(0, 7);
+  const isPastMonth = state.month < nowMonth;
+  const isCurrentMonth = state.month === nowMonth;
+  const locked = state.report?.locked;
+
+  let reportButton;
+  if (state.isDemoMode) reportButton = "查看样例报告";
+  else if (state.isReportLoading) reportButton = "生成中…";
+  else if (locked) reportButton = "重新生成（覆盖锁定）";
+  else if (isCurrentMonth && state.report?.content) reportButton = "刷新当月报告";
+  else reportButton = "生成报告";
+
+  const badgeHtml = locked
+    ? `<span class="report-badge locked">历史报告 · 已锁定</span>`
+    : isCurrentMonth && state.report?.content
+    ? `<span class="report-badge current">当月进行中</span>`
+    : "";
+
+  const providerName = state.report?.provider === "anthropic" ? "Claude" : state.report?.provider === "deepseek" ? "DeepSeek" : "";
+  const metaHtml = state.report?.content && !state.isReportLoading
+    ? `<p class="report-meta">${state.report.generatedAt ? `生成于 ${new Date(state.report.generatedAt).toLocaleString("zh-CN")}` : ""}${providerName ? ` · ${providerName}` : ""}${locked ? " · 数据已冻结" : ""}</p>`
+    : "";
+
+  const loadingMsg = isPastMonth
+    ? "正在生成历史复盘，完成后将锁定不再重复生成…"
+    : "正在分析本月阅读进度，整理新增笔记亮点…";
+
   return `
     <section class="page-head">
-      <div><span class="section-kicker">Monthly Review</span><h2>${formatMonth(state.month)} 复盘报告</h2></div>
+      <div>
+        <span class="section-kicker">Monthly Review</span>
+        <h2>${formatMonth(state.month)} 复盘报告 ${badgeHtml}</h2>
+      </div>
       <button class="primary-action" data-action="generate-report" type="button">${reportButton}</button>
     </section>
     <section class="report-shell">
       <article class="panel report-panel">
         ${!aiConfigured ? `<div class="empty-state compact"><h3>AI 未配置</h3><p>设置 <code>ANTHROPIC_API_KEY</code>（Claude）或 <code>DEEPSEEK_API_KEY</code>（DeepSeek），然后重启后端即可生成 AI 月度复盘。</p></div>` : ""}
-        ${state.isReportLoading ? loadingBlock("正在整理本月阅读数据并请求 DeepSeek...") : ""}
-        ${state.report?.content ? `<div class="report-content">${renderMarkdownish(state.report.content)}</div>` : (!state.isReportLoading ? `<p class="muted">报告会基于本地缓存摘要、重点书本和高价值笔记摘选生成。</p>` : "")}
+        ${state.isReportLoading ? loadingBlock(loadingMsg) : ""}
+        ${metaHtml}
+        ${state.report?.content ? `<div class="report-content">${renderMarkdownish(state.report.content)}</div>` : (!state.isReportLoading ? `<p class="muted">${isPastMonth ? "历史月份数据已冻结，生成后将永久锁定，无需重复生成。" : "当月报告会突出本月新增笔记和进展亮点。"}</p>` : "")}
       </article>
     </section>
   `;
 }
 
 function renderMarkdownish(text) {
-  return escapeHtml(text)
+  function inlineFormat(s) {
+    // **bold** → <strong>
+    return s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  }
+  return text
     .split(/\n{2,}/)
     .map((block) => {
       const cleaned = block.trim();
       if (!cleaned) return "";
-      if (/^\d+\.\s/.test(cleaned) || /^[-*]\s/.test(cleaned)) {
-        return `<p>${cleaned.replace(/\n/g, "<br>")}</p>`;
+      // Heading: line starting with ** and ending with ** (section header style)
+      if (/^\*\*[^*]+\*\*$/.test(cleaned)) {
+        return `<h3>${cleaned.slice(2, -2)}</h3>`;
       }
-      if (cleaned.length < 28 && /[：:]?$/.test(cleaned)) return `<h3>${cleaned}</h3>`;
-      return `<p>${cleaned.replace(/\n/g, "<br>")}</p>`;
+      // List items
+      if (/^[-*]\s/.test(cleaned) || /^\d+\.\s/.test(cleaned)) {
+        const items = cleaned.split(/\n/).map((li) => {
+          const body = li.replace(/^[-*]\s+|^\d+\.\s+/, "");
+          return `<li>${inlineFormat(escapeHtml(body))}</li>`;
+        });
+        return `<ul>${items.join("")}</ul>`;
+      }
+      return `<p>${inlineFormat(escapeHtml(cleaned)).replace(/\n/g, "<br>")}</p>`;
     })
     .join("");
 }
