@@ -1,7 +1,7 @@
 import http from "node:http";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -846,6 +846,44 @@ async function handleApi(request, response, url) {
       }
       throw error;
     }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/weread/reports/prebuild") {
+    const body = await readJsonBody(request);
+    // Collect months to build: explicit list, or auto-detect from snapshot files + report files
+    let months = body?.months;
+    if (!months || !months.length) {
+      const nowMonth = currentMonthKey();
+      const snapshotMonths = (await readdir(SNAPSHOT_DIR).catch(() => []))
+        .map((f) => f.match(/^month-(\d{4}-\d{2})\.json$/)?.[1])
+        .filter(Boolean);
+      const reportMonths = (await readdir(REPORT_DIR).catch(() => []))
+        .map((f) => f.match(/^(\d{4}-\d{2})\.json$/)?.[1])
+        .filter(Boolean);
+      months = [...new Set([...snapshotMonths, ...reportMonths])]
+        .filter((m) => m < nowMonth)
+        .sort();
+    }
+
+    const results = [];
+    for (const month of months) {
+      const reportFile = path.join(REPORT_DIR, `${month}.json`);
+      const existing = await readJson(reportFile, null);
+      if (existing?.content && existing?.locked) {
+        results.push({ month, status: "already_locked" });
+        continue;
+      }
+      try {
+        // Ensure notes cache exists first
+        await valuableNotes({ month, force: false });
+        const report = await generateMonthlyReport({ monthKey: month, force: false });
+        results.push({ month, status: report.cached ? "was_cached" : "generated", model: report.model });
+      } catch (error) {
+        results.push({ month, status: "error", error: error.message });
+      }
+    }
+    sendJson(response, 200, { ok: true, results });
     return;
   }
 

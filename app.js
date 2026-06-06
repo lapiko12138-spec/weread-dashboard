@@ -19,6 +19,7 @@ const state = {
   isSyncing: false,
   isNotesLoading: false,
   isReportLoading: false,
+  isPrebuildLoading: false,
   error: null,
   isDemoMode: false
 };
@@ -329,6 +330,12 @@ function setStatus() {
   const ready = status.authReady && Boolean(dashboard);
   statusDot.textContent = ready ? `已同步 ${formatDateTime(status.lastSyncAt)}` : "需要检查";
   statusDot.className = `status-dot ${ready ? "ready" : "warn"}`;
+  const prebuildBtn = document.querySelector("#prebuildButton");
+  if (prebuildBtn) {
+    prebuildBtn.title = state.isPrebuildLoading ? "历史报告生成中，请稍候…" : "预生成所有历史报告";
+    prebuildBtn.style.opacity = state.isPrebuildLoading ? "0.5" : "";
+    prebuildBtn.textContent = state.isPrebuildLoading ? "⏳" : "⬇";
+  }
 }
 
 async function loadStatus() {
@@ -418,6 +425,30 @@ async function loadValuableNotes(force = false) {
     showNotice(`正在展示高价值笔记样例：${error.message}`, "warn");
   } finally {
     state.isNotesLoading = false;
+    render();
+  }
+}
+
+async function prebuildAllReports() {
+  state.isPrebuildLoading = true;
+  render();
+  try {
+    // Long timeout: batch AI generation can take minutes
+    const res = await fetch(`${LOCAL_API_ORIGIN}/api/weread/reports/prebuild`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    const generated = data.results?.filter((r) => r.status === "generated").length || 0;
+    const locked = data.results?.filter((r) => r.status === "already_locked").length || 0;
+    const errors = data.results?.filter((r) => r.status === "error") || [];
+    const msg = `预生成完成：${generated} 份新生成，${locked} 份已锁定${errors.length ? `，${errors.length} 份失败` : ""}`;
+    showNotice(msg, errors.length ? "warn" : "success");
+  } catch (error) {
+    showNotice(`预生成失败：${error.message}`, "warn");
+  } finally {
+    state.isPrebuildLoading = false;
     render();
   }
 }
@@ -868,6 +899,10 @@ document.querySelector("#nextMonth").addEventListener("click", () => {
 });
 
 document.querySelector("#syncButton").addEventListener("click", syncNow);
+document.querySelector("#prebuildButton").addEventListener("click", () => {
+  if (state.isPrebuildLoading) return;
+  prebuildAllReports();
+});
 document.querySelector("#reportShortcut").addEventListener("click", () => {
   state.view = "report";
   render();
