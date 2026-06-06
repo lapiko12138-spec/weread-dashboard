@@ -552,12 +552,25 @@ async function fetchBookNotes(book, month = null) {
 
 async function valuableNotes({ force = false, month = null } = {}) {
   const targetMonth = month || currentMonthKey();
+  const nowMonth = currentMonthKey();
+  const isPastMonth = targetMonth < nowMonth;
   const cacheFile = path.join(VALUABLE_NOTES_DIR, `${targetMonth}.json`);
   const cached = await readJson(cacheFile, null);
-  const cacheAge = cached?.generatedAt ? Date.now() - new Date(cached.generatedAt).getTime() : Infinity;
-  if (!force && cached?.items?.length && cacheAge < 60 * 60 * 1000) return cached;
 
-  const cache = await refreshData();
+  // Past months: data is frozen — cache forever, never regenerate unless force=true
+  if (isPastMonth && cached?.items && !force) return cached;
+
+  // Current month: cache 1 hour
+  if (!isPastMonth) {
+    const cacheAge = cached?.generatedAt ? Date.now() - new Date(cached.generatedAt).getTime() : Infinity;
+    if (!force && cached?.items?.length && cacheAge < 60 * 60 * 1000) return cached;
+  }
+
+  // For past months, use the stored dashboard snapshot (no need to sync current month data)
+  // For current month, do a full sync to get up-to-date book list
+  const cache = isPastMonth
+    ? (await getDashboardForMonth(targetMonth))
+    : (await refreshData());
   const books = (cache.dashboard?.noteTop || []).slice(0, 10);
   const groups = [];
 
