@@ -22,6 +22,8 @@ const HOST = process.env.WEREAD_DASHBOARD_HOST || "0.0.0.0";
 const SYNC_INTERVAL_MS = Number(process.env.WEREAD_SYNC_INTERVAL_MS || 15 * 60 * 1000);
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
+const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
 const WEREAD_TIMEOUT_MS = Number(process.env.WEREAD_TIMEOUT_MS || 25000);
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -352,8 +354,9 @@ async function buildDashboard(raw) {
     featuredBooks,
     insights: localInsights(monthly, noteTop),
     ai: {
-      configured: Boolean(process.env.DEEPSEEK_API_KEY),
-      model: DEEPSEEK_MODEL
+      configured: Boolean(process.env.ANTHROPIC_API_KEY) || Boolean(process.env.DEEPSEEK_API_KEY),
+      provider: process.env.ANTHROPIC_API_KEY ? "anthropic" : (process.env.DEEPSEEK_API_KEY ? "deepseek" : null),
+      model: process.env.ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : DEEPSEEK_MODEL
     }
   };
 }
@@ -452,49 +455,43 @@ async function statusPayload() {
     lastError: cache?.lastError || null,
     hasCache: Boolean(cache?.dashboard),
     ai: {
-      configured: Boolean(process.env.DEEPSEEK_API_KEY),
-      model: DEEPSEEK_MODEL,
-      baseUrl: DEEPSEEK_BASE_URL
+      configured: Boolean(process.env.ANTHROPIC_API_KEY) || Boolean(process.env.DEEPSEEK_API_KEY),
+      provider: process.env.ANTHROPIC_API_KEY ? "anthropic" : (process.env.DEEPSEEK_API_KEY ? "deepseek" : null),
+      model: process.env.ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : DEEPSEEK_MODEL
     },
     syncIntervalMs: SYNC_INTERVAL_MS
   };
 }
 
-function compactBookmark(item = {}, book = {}) {
-  const text = item.markText || item.text || item.abstract || "";
+function compactHighlight(item = {}, book = {}) {
+  const text = item.text || "";
   return {
-    id: item.bookmarkId || `${book.bookId}-${item.chapterUid || "x"}-${item.range || text.slice(0, 12)}`,
+    id: `${book.bookId}-hl-${item.createTime || text.slice(0, 12)}`,
     type: "划线",
     bookId: book.bookId,
     title: book.title,
     author: book.author,
-    chapterUid: item.chapterUid,
-    chapterTitle: item.chapterTitle || item.chapterName || "",
+    chapterTitle: item.chapterTitle || "",
     text,
     content: "",
     createdAt: item.createTime ? dateFromUnix(item.createTime) : "",
-    range: item.range || "",
     valueScore: scoreNote(text, "")
   };
 }
 
-function compactReview(item = {}, book = {}) {
-  const review = item.review || item;
-  const content = review.content || "";
-  const abstract = review.abstract || review.markText || "";
+function compactIdea(item = {}, book = {}) {
+  const content = item.content || "";
   return {
-    id: review.reviewId || `${book.bookId}-${review.createTime || content.slice(0, 12)}`,
+    id: `${book.bookId}-idea-${item.createTime || content.slice(0, 12)}`,
     type: "想法",
     bookId: book.bookId,
     title: book.title,
     author: book.author,
-    chapterUid: review.chapterUid,
-    chapterTitle: review.chapterName || "",
-    text: abstract,
+    chapterTitle: item.chapterTitle || "",
+    text: "",
     content,
-    createdAt: review.createTime ? dateFromUnix(review.createTime) : "",
-    range: review.range || "",
-    valueScore: scoreNote(abstract, content)
+    createdAt: item.createTime ? dateFromUnix(item.createTime) : "",
+    valueScore: scoreNote("", content)
   };
 }
 
@@ -506,13 +503,15 @@ function scoreNote(text = "", content = "") {
 }
 
 async function fetchBookNotes(book) {
-  const [bookmarks, reviews] = await Promise.all([
-    runWereadJson(["--compact", "notes", "bookmarks", book.bookId, "--limit", "40"], { maxBuffer: 18 * 1024 * 1024 }),
-    runWereadJson(["--compact", "notes", "mine", book.bookId, "--count", "40"], { maxBuffer: 18 * 1024 * 1024 })
-  ]);
-  const bookmarkItems = unwrapItems(bookmarks).map((item) => compactBookmark(item, book));
-  const reviewItems = unwrapItems(reviews).map((item) => compactReview(item, book));
-  return [...bookmarkItems, ...reviewItems]
+  // notes export returns only personal highlights and ideas (never other users' popular bookmarks)
+  const exportData = await runWereadJson(
+    ["notes", "export", book.bookId, "--all"],
+    { maxBuffer: 18 * 1024 * 1024 }
+  );
+  const data = exportData.data || exportData;
+  const highlights = (data.highlights || []).map((item) => compactHighlight(item, book));
+  const ideas = (data.ideas || []).map((item) => compactIdea(item, book));
+  return [...highlights, ...ideas]
     .filter((item) => item.text || item.content)
     .sort((a, b) => b.valueScore - a.valueScore)
     .slice(0, 8);
@@ -580,51 +579,79 @@ async function generateMonthlyReport({ monthKey, force = false } = {}) {
   const cached = await readJson(reportFile, null);
   if (!force && cached?.content) return { ...cached, cached: true };
 
-  if (!process.env.DEEPSEEK_API_KEY) {
-    const error = new Error("DeepSeek API Key 未配置，请设置 DEEPSEEK_API_KEY");
+  const usesAnthropic = Boolean(process.env.ANTHROPIC_API_KEY);
+  const usesDeepSeek = Boolean(process.env.DEEPSEEK_API_KEY);
+  if (!usesAnthropic && !usesDeepSeek) {
+    const error = new Error("AI API Key 未配置，请设置 ANTHROPIC_API_KEY（Claude）或 DEEPSEEK_API_KEY（DeepSeek）");
     error.statusCode = 503;
     throw error;
   }
 
   const cache = await getDashboardForMonth(targetMonth);
   const notes = await valuableNotes();
-  const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: [
-        {
-          role: "system",
-          content: "你是一个高级阅读复盘产品里的私人阅读教练。你只根据输入数据总结，不夸张，不鸡汤。"
-        },
-        {
-          role: "user",
-          content: reportPrompt(cache.dashboard, notes)
-        }
-      ],
-      max_tokens: 1800
-    })
-  });
+  const systemPrompt = "你是一个高级阅读复盘产品里的私人阅读教练。你只根据输入数据总结，不夸张，不鸡汤。";
+  const userPrompt = reportPrompt(cache.dashboard, notes);
 
-  if (!response.ok) {
-    const text = await response.text();
-    const error = new Error(`DeepSeek 请求失败：${response.status} ${text.slice(0, 300)}`);
-    error.statusCode = response.status;
-    throw error;
+  let content;
+  let usedModel;
+
+  if (usesAnthropic) {
+    const response = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }]
+      })
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      const error = new Error(`Claude 请求失败：${response.status} ${text.slice(0, 300)}`);
+      error.statusCode = response.status;
+      throw error;
+    }
+    const json = await response.json();
+    content = json.content?.[0]?.text || "";
+    usedModel = ANTHROPIC_MODEL;
+  } else {
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        max_tokens: 1800
+      })
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      const error = new Error(`DeepSeek 请求失败：${response.status} ${text.slice(0, 300)}`);
+      error.statusCode = response.status;
+      throw error;
+    }
+    const json = await response.json();
+    content = json.choices?.[0]?.message?.content || "";
+    usedModel = DEEPSEEK_MODEL;
   }
 
-  const json = await response.json();
-  const content = json.choices?.[0]?.message?.content || "";
   const report = {
     monthKey: targetMonth,
-    model: DEEPSEEK_MODEL,
+    model: usedModel,
+    provider: usesAnthropic ? "anthropic" : "deepseek",
     generatedAt: new Date().toISOString(),
     content,
-    usage: json.usage || null
   };
   await writeJson(reportFile, report);
   return report;

@@ -442,8 +442,8 @@ async function generateReport(force = false) {
       state.report = createDemoReport();
       showNotice(`已切换为样例报告：${error.message}`, "warn");
     } else {
-      showNotice(error.message.includes("DeepSeek API Key")
-        ? "DeepSeek API Key 未配置。设置 DEEPSEEK_API_KEY 后即可生成 AI 复盘。"
+      showNotice(error.message.includes("AI API Key")
+        ? "AI API Key 未配置。设置 ANTHROPIC_API_KEY（Claude）或 DEEPSEEK_API_KEY（DeepSeek）后即可生成复盘。"
         : `报告生成失败：${error.message}`, "error");
     }
   } finally {
@@ -466,7 +466,8 @@ function statusStrip(d) {
   const syncText = state.isDemoMode ? "未连接本地后端" : formatDateTime(state.status?.lastSyncAt);
   const sourceText = state.isDemoMode ? "静态样例数据" : "微信读书本地缓存";
   const apiText = shouldUseLocalApi() ? LOCAL_API_ORIGIN : "同源 Node 服务";
-  const aiText = d.ai?.configured ? `已配置 ${d.ai.model}` : (state.isDemoMode ? "静态样例报告" : "DeepSeek 待配置");
+  const aiProvider = d.ai?.provider === "anthropic" ? "Claude" : "DeepSeek";
+  const aiText = d.ai?.configured ? `已配置 ${aiProvider} · ${d.ai.model}` : (state.isDemoMode ? "静态样例报告" : "AI 待配置（Claude/DeepSeek）");
 
   return `
     <section class="status-strip" aria-label="数据状态">
@@ -514,11 +515,17 @@ function chart(trend = []) {
     return `<text x="${x - 22}" y="${height - 12}">${escapeHtml(item.date.slice(5))}</text>`;
   }).join("");
 
+  const dots = points.map((pt) => {
+    const [x, y] = pt.split(",");
+    return `<circle class="chart-dot" cx="${x}" cy="${y}" r="4"></circle>`;
+  }).join("");
+
   return `
     <svg class="line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="阅读趋势">
       <g class="chart-grid">${grid}</g>
       <polygon class="chart-area" points="${fill}"></polygon>
       <polyline class="chart-line" points="${points.join(" ")}"></polyline>
+      <g class="chart-dots">${dots}</g>
       <g class="chart-labels">${labels}</g>
     </svg>
   `;
@@ -572,10 +579,11 @@ function noteRow(item, index) {
 }
 
 function valuableNote(note) {
-  const quote = clipText(note.text, 180);
-  const idea = clipText(note.content, 240);
+  const quote = clipText(note.text, 200);
+  const idea = clipText(note.content, 280);
+  const isIdea = note.type === "想法";
   return `
-    <article class="note-card">
+    <article class="note-card${isIdea ? " idea" : ""}">
       <div class="note-meta">
         <span>${escapeHtml(note.type || "笔记")}</span>
         <span>${escapeHtml(note.createdAt || "")}</span>
@@ -736,7 +744,7 @@ function reportView() {
     </section>
     <section class="report-shell">
       <article class="panel report-panel">
-        ${!aiConfigured ? `<div class="empty-state compact"><h3>DeepSeek 未配置</h3><p>设置 DEEPSEEK_API_KEY 后，可以生成 AI 月度复盘。其他阅读数据不受影响。</p></div>` : ""}
+        ${!aiConfigured ? `<div class="empty-state compact"><h3>AI 未配置</h3><p>设置 <code>ANTHROPIC_API_KEY</code>（Claude）或 <code>DEEPSEEK_API_KEY</code>（DeepSeek），然后重启后端即可生成 AI 月度复盘。</p></div>` : ""}
         ${state.isReportLoading ? loadingBlock("正在整理本月阅读数据并请求 DeepSeek...") : ""}
         ${state.report?.content ? `<div class="report-content">${renderMarkdownish(state.report.content)}</div>` : (!state.isReportLoading ? `<p class="muted">报告会基于本地缓存摘要、重点书本和高价值笔记摘选生成。</p>` : "")}
       </article>

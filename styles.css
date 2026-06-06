@@ -297,6 +297,33 @@ a {
   overflow: hidden;
   position: relative;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(249, 251, 246, 0.92));
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 48px rgba(47, 69, 42, 0.1);
+}
+
+.metric-card::after {
+  content: "";
+  position: absolute;
+  right: -32px;
+  top: -32px;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: var(--green-soft);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.metric-card.amber::after {
+  background: var(--amber-soft);
+}
+
+.metric-card.coral::after {
+  background: var(--coral-soft);
 }
 
 .metric-card::before {
@@ -452,7 +479,31 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.note-meta span:first-child {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.note-card.idea .note-meta span:first-child {
+  background: var(--amber-soft);
+  color: #7a4b00;
+}
+
+.note-meta span:last-child {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .panel-head h2,
@@ -478,7 +529,13 @@ a {
   margin-top: 10px;
   border: 1px solid #edf1e9;
   border-radius: 8px;
-  background: linear-gradient(180deg, #fff, #fbfcf8);
+  background: linear-gradient(180deg, #fff 0%, #f7fbf3 100%);
+}
+
+.chart-dot {
+  fill: var(--green);
+  stroke: #fff;
+  stroke-width: 2;
 }
 
 .chart-grid line {
@@ -679,9 +736,15 @@ a {
   grid-template-columns: 28px 1fr auto;
   align-items: center;
   gap: 12px;
-  padding: 10px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.rank-row:hover {
+  border-color: rgba(95, 145, 71, 0.3);
+  background: var(--surface-soft);
 }
 
 .rank-row span {
@@ -736,13 +799,31 @@ a {
 }
 
 .note-card {
-  padding: 16px;
+  padding: 18px;
   box-shadow: none;
   background: linear-gradient(180deg, #fff, #fbfcf8);
+  transition: box-shadow 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.note-card:hover {
+  border-color: rgba(95, 145, 71, 0.3);
+  box-shadow: 0 8px 24px rgba(42, 56, 37, 0.07);
+  transform: translateY(-1px);
+}
+
+.note-card.idea {
+  background: linear-gradient(180deg, #fff, #fffcf5);
+  border-color: rgba(215, 151, 56, 0.2);
+}
+
+.note-card.idea:hover {
+  border-color: rgba(215, 151, 56, 0.4);
 }
 
 .note-card h3 {
-  margin: 10px 0 8px;
+  margin: 10px 0 6px;
+  font-size: 14px;
+  color: var(--ink);
 }
 
 .chapter-chip {
@@ -757,17 +838,27 @@ a {
 }
 
 .note-card blockquote {
-  margin: 0 0 10px;
-  padding: 0 0 0 12px;
+  margin: 0 0 12px;
+  padding: 11px 14px 11px 14px;
   border-left: 3px solid var(--green);
-  color: #353b33;
-  line-height: 1.7;
+  background: #f5faf0;
+  border-radius: 0 6px 6px 0;
+  color: #2c3328;
+  line-height: 1.78;
+  font-size: 13.5px;
+}
+
+.note-card.idea blockquote {
+  border-left-color: var(--amber);
+  background: #fffbf2;
+  color: #3b2e0d;
 }
 
 .note-card p {
   margin: 0;
   color: var(--muted);
-  line-height: 1.7;
+  line-height: 1.75;
+  font-size: 13px;
 }
 
 .report-shell {
