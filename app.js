@@ -343,6 +343,8 @@ async function loadStatus() {
 async function loadDashboard() {
   state.isLoading = true;
   state.error = null;
+  state.valuableNotes = null;
+  state.report = null;
   render();
   try {
     const payload = await api(`/api/weread/dashboard?month=${encodeURIComponent(state.month)}`);
@@ -406,7 +408,9 @@ async function loadValuableNotes(force = false) {
   state.isNotesLoading = true;
   render();
   try {
-    state.valuableNotes = await api(`/api/weread/notes/valuable${force ? "?force=1" : ""}`);
+    const params = new URLSearchParams({ month: state.month });
+    if (force) params.set("force", "1");
+    state.valuableNotes = await api(`/api/weread/notes/valuable?${params}`);
     state.isDemoMode = false;
     showNotice("");
   } catch (error) {
@@ -705,14 +709,24 @@ function notesView() {
   if (!state.valuableNotes && !state.isNotesLoading) {
     queueMicrotask(() => loadValuableNotes(false));
   }
-  if (state.isNotesLoading && !state.valuableNotes) return loadingBlock("正在抓取笔记最多前 10 本的个人笔记...");
+  if (state.isNotesLoading && !state.valuableNotes) return loadingBlock(`正在抓取 ${formatMonth(state.month)} 的个人笔记...`);
 
   const groups = state.valuableNotes?.items || [];
+  const monthLabel = formatMonth(state.month);
+
+  const emptyState = `
+    <section class="empty-state">
+      <h2>📭 ${monthLabel}暂无笔记记录</h2>
+      <p>这个月没有在笔记最多的书中找到划线或想法。<br>切换到其他月份，或在微信读书里多记录一些。</p>
+    </section>
+  `;
+
   return `
     <section class="page-head">
-      <div><span class="section-kicker">Personal Notes</span><h2>高价值笔记</h2></div>
+      <div><span class="section-kicker">Personal Notes · ${escapeHtml(monthLabel)}</span><h2>高价值笔记</h2></div>
       <button class="primary-action" data-action="reload-notes" type="button">${state.isNotesLoading ? "刷新中" : "重新抓取"}</button>
     </section>
+    ${groups.length === 0 ? emptyState : `
     <section class="notes-layout">
       ${groups.map((group) => `
         <article class="panel note-group">
@@ -720,16 +734,16 @@ function notesView() {
             ${cover(group.book, "small")}
             <div>
               <h3>${escapeHtml(group.book.title)}</h3>
-              <p>${escapeHtml(group.book.author || "")} · ${group.totalNotes || 0} 条笔记</p>
+              <p>${escapeHtml(group.book.author || "")} · ${escapeHtml(monthLabel)}有 ${group.notes.length} 条笔记</p>
             </div>
           </div>
           ${group.error ? `<p class="muted">读取失败：${escapeHtml(group.error)}</p>` : ""}
           <div class="note-grid">
-            ${group.notes.length ? group.notes.map(valuableNote).join("") : `<p class="muted">这本书暂时没有可展示的划线或想法。</p>`}
+            ${group.notes.length ? group.notes.map(valuableNote).join("") : `<p class="muted">这本书在 ${escapeHtml(monthLabel)} 暂无划线或想法。</p>`}
           </div>
         </article>
       `).join("")}
-    </section>
+    </section>`}
   `;
 }
 

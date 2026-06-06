@@ -14,7 +14,7 @@ const DATA_DIR = path.join(ROOT_DIR, "data");
 const SNAPSHOT_DIR = path.join(DATA_DIR, "snapshots");
 const REPORT_DIR = path.join(DATA_DIR, "reports");
 const CACHE_FILE = path.join(DATA_DIR, "weread-cache.json");
-const VALUABLE_NOTES_FILE = path.join(DATA_DIR, "valuable-notes.json");
+const VALUABLE_NOTES_DIR = path.join(DATA_DIR, "valuable-notes");
 const FEATURED_CONFIG_FILE = path.join(ROOT_DIR, "config", "featured-books.json");
 
 const PORT = Number(process.env.WEREAD_DASHBOARD_PORT || 8788);
@@ -64,6 +64,7 @@ async function ensureDirs() {
   await mkdir(DATA_DIR, { recursive: true });
   await mkdir(SNAPSHOT_DIR, { recursive: true });
   await mkdir(REPORT_DIR, { recursive: true });
+  await mkdir(VALUABLE_NOTES_DIR, { recursive: true });
 }
 
 async function readJson(filePath, fallback) {
@@ -523,7 +524,7 @@ function scoreNote(text = "", content = "") {
   return Math.min(100, Math.round(length / 4) + hasIdea + hasLongQuote);
 }
 
-async function fetchBookNotes(book) {
+async function fetchBookNotes(book, month = null) {
   // notes export returns only personal highlights and ideas (never other users' popular bookmarks)
   const exportData = await runWereadJson(
     ["notes", "export", book.bookId, "--all"],
@@ -532,14 +533,17 @@ async function fetchBookNotes(book) {
   const data = exportData.data || exportData;
   const highlights = (data.highlights || []).map((item) => compactHighlight(item, book));
   const ideas = (data.ideas || []).map((item) => compactIdea(item, book));
-  return [...highlights, ...ideas]
-    .filter((item) => item.text || item.content)
-    .sort((a, b) => b.valueScore - a.valueScore)
-    .slice(0, 8);
+  let all = [...highlights, ...ideas].filter((item) => item.text || item.content);
+  if (month) {
+    all = all.filter((item) => item.createdAt && item.createdAt.startsWith(month));
+  }
+  return all.sort((a, b) => b.valueScore - a.valueScore).slice(0, 8);
 }
 
-async function valuableNotes({ force = false } = {}) {
-  const cached = await readJson(VALUABLE_NOTES_FILE, null);
+async function valuableNotes({ force = false, month = null } = {}) {
+  const targetMonth = month || currentMonthKey();
+  const cacheFile = path.join(VALUABLE_NOTES_DIR, `${targetMonth}.json`);
+  const cached = await readJson(cacheFile, null);
   const cacheAge = cached?.generatedAt ? Date.now() - new Date(cached.generatedAt).getTime() : Infinity;
   if (!force && cached?.items?.length && cacheAge < 60 * 60 * 1000) return cached;
 
@@ -549,7 +553,7 @@ async function valuableNotes({ force = false } = {}) {
 
   for (const book of books) {
     try {
-      const notes = await fetchBookNotes(book);
+      const notes = await fetchBookNotes(book, targetMonth);
       groups.push({
         book,
         notes,
@@ -567,11 +571,12 @@ async function valuableNotes({ force = false } = {}) {
 
   const payload = {
     generatedAt: new Date().toISOString(),
-    source: "笔记最多前 10 本",
-    items: groups,
+    month: targetMonth,
+    source: `笔记最多前 10 本 · ${targetMonth} 月份笔记`,
+    items: groups.filter((g) => g.notes.length > 0 || g.error),
     highlights: groups.flatMap((group) => group.notes.slice(0, 2)).slice(0, 12)
   };
-  await writeJson(VALUABLE_NOTES_FILE, payload);
+  await writeJson(cacheFile, payload);
   return payload;
 }
 
@@ -609,7 +614,7 @@ async function generateMonthlyReport({ monthKey, force = false } = {}) {
   }
 
   const cache = await getDashboardForMonth(targetMonth);
-  const notes = await valuableNotes();
+  const notes = await valuableNotes({ month: targetMonth });
   const systemPrompt = "你是一个高级阅读复盘产品里的私人阅读教练。你只根据输入数据总结，不夸张，不鸡汤。";
   const userPrompt = reportPrompt(cache.dashboard, notes);
 
@@ -744,7 +749,8 @@ async function handleApi(request, response, url) {
 
   if (request.method === "GET" && url.pathname === "/api/weread/notes/valuable") {
     const force = url.searchParams.get("force") === "1";
-    sendJson(response, 200, { ok: true, ...(await valuableNotes({ force })) });
+    const month = url.searchParams.get("month") || null;
+    sendJson(response, 200, { ok: true, ...(await valuableNotes({ force, month })) });
     return;
   }
 
