@@ -17,7 +17,15 @@ http://localhost:8788
 
 ## GitHub Pages
 
-GitHub Pages 只能展示静态前端。真实微信读书数据依赖本机 Node 后端、`weread` CLI 和本地凭据，因此公网 Pages 链接不会暴露个人阅读缓存，也不会直接显示真实数据。
+GitHub Pages 会展示静态预览，不提交或暴露本地 `data/` 目录里的个人阅读缓存。
+
+如果在同一台 Mac 上运行了本地后端，公开页面会尝试连接：
+
+```text
+http://localhost:8788
+```
+
+连接成功后即可显示真实微信读书数据；连接失败时会自动回到样例预览。
 
 ## 环境变量
 

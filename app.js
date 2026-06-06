@@ -4,6 +4,10 @@ const statusDot = document.querySelector("#statusDot");
 const monthLabel = document.querySelector("#monthLabel");
 const tabs = [...document.querySelectorAll(".tab")];
 
+const LOCAL_API_ORIGIN = "http://localhost:8788";
+const STATIC_HOSTS = ["github.io"];
+const STATIC_PREVIEW_MESSAGE = "当前是 GitHub Pages 静态预览。若要查看真实个人数据，请在本机运行 npm start 后刷新页面。";
+
 const state = {
   view: "dashboard",
   month: currentMonthKey(),
@@ -15,12 +19,23 @@ const state = {
   isSyncing: false,
   isNotesLoading: false,
   isReportLoading: false,
-  error: null
+  error: null,
+  isDemoMode: false
 };
 
 function currentMonthKey() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function shouldUseLocalApi() {
+  return location.protocol === "file:"
+    || location.pathname.includes("/weread-dashboard/")
+    || STATIC_HOSTS.some((host) => location.hostname.endsWith(host));
+}
+
+function apiEndpoint(path) {
+  return shouldUseLocalApi() ? `${LOCAL_API_ORIGIN}${path}` : path;
 }
 
 function shiftMonth(monthKey, offset) {
@@ -60,14 +75,224 @@ function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options
+function secondsToText(seconds = 0) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours && minutes) return `${hours} 小时 ${minutes} 分钟`;
+  if (hours) return `${hours} 小时`;
+  return `${minutes} 分钟`;
+}
+
+function demoTrend(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const values = [18, 34, 22, 48, 36, 56, 28, 72, 44, 66, 52, 84, 38, 61, 46];
+  return values.map((minutes, index) => {
+    const date = new Date(year, month - 1, index + 1);
+    return {
+      date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
+      seconds: minutes * 60,
+      minutes
+    };
   });
+}
+
+function createDemoDashboard(monthKey = state.month) {
+  const categories = [
+    ["认知科学", 7.6, 5],
+    ["商业与组织", 5.2, 4],
+    ["技术与 AI", 4.4, 3],
+    ["文学随笔", 3.1, 2],
+    ["历史社会", 2.3, 2]
+  ].map(([title, hours, readingCount]) => ({
+    title,
+    readingTime: Math.round(hours * 3600),
+    readingTimeText: secondsToText(hours * 3600),
+    readingCount
+  }));
+
+  const featuredBooks = [
+    {
+      bookId: "demo-1",
+      title: "深度学习",
+      author: "Ian Goodfellow 等",
+      category: "技术与 AI",
+      source: "静态样例",
+      reason: "适合拆成概念卡片和公式索引",
+      guideUrl: "",
+      coverTone: "cover-blue"
+    },
+    {
+      bookId: "demo-2",
+      title: "置身事内",
+      author: "兰小欢",
+      category: "经济与社会",
+      source: "静态样例",
+      reason: "适合做政策、城市与产业链复盘",
+      guideUrl: "",
+      coverTone: "cover-amber"
+    },
+    {
+      bookId: "demo-3",
+      title: "穷查理宝典",
+      author: "彼得·考夫曼",
+      category: "商业与组织",
+      source: "静态样例",
+      reason: "可沉淀多元思维模型清单",
+      guideUrl: "",
+      coverTone: "cover-green"
+    },
+    {
+      bookId: "demo-4",
+      title: "纳瓦尔宝典",
+      author: "埃里克·乔根森",
+      category: "自我管理",
+      source: "静态样例",
+      reason: "适合提炼长期主义与杠杆笔记",
+      guideUrl: "",
+      coverTone: "cover-coral"
+    }
+  ];
+
+  return {
+    generatedAt: new Date().toISOString(),
+    monthKey,
+    monthLabel: formatMonth(monthKey),
+    stats: {
+      totalReadTime: 22 * 3600 + 40 * 60,
+      totalReadTimeText: "22 小时 40 分钟",
+      readDays: 18,
+      dayAverageReadTime: 75 * 60,
+      dayAverageReadTimeText: "1 小时 15 分钟",
+      compare: 0.18,
+      compareText: "较上期增长 18%",
+      readBooks: 14,
+      finishedBooks: 5,
+      noteCount: 126,
+      notebookBooks: 9,
+      totalNotes: 318,
+      annualReadTimeText: "146 小时"
+    },
+    trend: demoTrend(monthKey),
+    categories,
+    readLongest: featuredBooks.slice(0, 3).map((book, index) => ({
+      ...book,
+      readTime: [6.2, 4.8, 3.9][index] * 3600,
+      readTimeText: secondsToText([6.2, 4.8, 3.9][index] * 3600),
+      tags: []
+    })),
+    recentBooks: featuredBooks,
+    notebooks: featuredBooks,
+    noteTop: featuredBooks.map((book, index) => ({
+      ...book,
+      totalNotes: [88, 64, 51, 37][index],
+      noteCount: [32, 24, 18, 15][index],
+      reviewCount: [12, 8, 9, 5][index],
+      bookmarkCount: [44, 32, 24, 17][index]
+    })),
+    featuredBooks,
+    insights: [
+      "这个月的阅读重心明显向「技术理解 + 现实系统」聚拢，适合把书摘进一步整理成主题卡片。",
+      "笔记密度高于阅读时长增长，说明你不只是浏览，而是在主动筛选可复用的观点。",
+      "下个月可以保留一本慢读书，同时把高价值笔记转成 3-5 条可执行问题。"
+    ],
+    ai: {
+      configured: false,
+      model: "static-preview"
+    }
+  };
+}
+
+function createDemoNotes() {
+  const items = [
+    {
+      book: { title: "深度学习", author: "Ian Goodfellow 等", coverTone: "cover-blue" },
+      totalNotes: 88,
+      notes: [
+        {
+          type: "划线",
+          createdAt: "6月3日",
+          title: "深度学习",
+          chapterTitle: "表示学习",
+          text: "好的表示会让后续任务变得简单，它把复杂输入转化为更容易处理的结构。",
+          content: "可以把每章核心概念整理成「问题 - 直觉 - 公式 - 例子」四格卡片。"
+        },
+        {
+          type: "想法",
+          createdAt: "6月8日",
+          title: "深度学习",
+          chapterTitle: "优化",
+          text: "优化不是只追求更低损失，也是在可计算、可泛化和可解释之间做取舍。",
+          content: "复盘时不要只记结论，要记录这个结论成立的约束条件。"
+        }
+      ]
+    },
+    {
+      book: { title: "置身事内", author: "兰小欢", coverTone: "cover-amber" },
+      totalNotes: 64,
+      notes: [
+        {
+          type: "划线",
+          createdAt: "6月12日",
+          title: "置身事内",
+          chapterTitle: "地方政府",
+          text: "很多经济现象只有放回组织结构和激励机制里，才会显出真正的因果链。",
+          content: "适合和产业政策、城市发展案例做交叉笔记。"
+        }
+      ]
+    }
+  ];
+
+  return {
+    generatedAt: new Date().toISOString(),
+    source: "静态样例",
+    items,
+    highlights: items.flatMap((group) => group.notes)
+  };
+}
+
+function createDemoReport() {
+  return {
+    monthKey: state.month,
+    model: "static-preview",
+    generatedAt: new Date().toISOString(),
+    cached: true,
+    content: `本月阅读状态：
+你保持了稳定的阅读频率，阅读时长并不夸张，但笔记密度较高，说明复盘重点已经从“读了多少”转向“留下了什么”。
+
+主题偏好：
+本月主题集中在认知科学、商业组织与技术理解。它们之间有共同线索：你在关心复杂系统如何运转，以及个体如何在系统里做更好的判断。
+
+关键书本与笔记洞察：
+样例数据里，「深度学习」更适合拆成概念卡片，「置身事内」更适合做案例链路，「穷查理宝典」适合沉淀判断模型。下一步可以把高价值划线转成自己的问题清单。
+
+下月阅读建议：
+保留一本慢读书作为主线，再配两本轻量补充阅读。每周挑 3 条笔记改写成自己的话，月底报告会更像一份真正能复用的知识资产。`
+  };
+}
+
+async function api(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 4500);
+
+  let response;
+  try {
+    response = await fetch(apiEndpoint(path), {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+      signal: controller.signal
+    });
+  } catch (error) {
+    throw new Error(error.name === "AbortError"
+      ? "本地后端连接超时。请确认 npm start 正在运行。"
+      : "本地后端未连接。请在本机运行 npm start 后刷新页面。");
+  } finally {
+    window.clearTimeout(timeout);
+  }
+
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
-    throw new Error("本地后端未连接。请在本机运行 npm start 后访问 http://localhost:8788 查看真实微信读书数据。");
+    throw new Error("本地后端未连接。请在本机运行 npm start 后刷新页面，或访问 http://localhost:8788 查看真实微信读书数据。");
   }
   const payload = await response.json();
   if (!response.ok || payload.ok === false) {
@@ -91,6 +316,11 @@ function showNotice(message, kind = "info") {
 function setStatus() {
   const status = state.status;
   const dashboard = state.dashboard;
+  if (state.isDemoMode) {
+    statusDot.textContent = "静态预览";
+    statusDot.className = "status-dot demo";
+    return;
+  }
   if (!status) {
     statusDot.textContent = "检查中";
     statusDot.className = "status-dot";
@@ -116,15 +346,30 @@ async function loadDashboard() {
   render();
   try {
     const payload = await api(`/api/weread/dashboard?month=${encodeURIComponent(state.month)}`);
+    if (!payload.dashboard) {
+      throw new Error("本地微信读书缓存还没有生成 dashboard 数据。请先点击同步。");
+    }
     state.dashboard = payload.dashboard;
+    state.isDemoMode = false;
     if (payload.lastError?.message) {
       showNotice(`同步异常，正在展示最近缓存：${payload.lastError.message}`, "warn");
     } else {
       showNotice("");
     }
   } catch (error) {
-    state.error = error.message;
-    showNotice(error.message, error.message.includes("本地后端未连接") ? "warn" : "error");
+    state.dashboard = createDemoDashboard(state.month);
+    state.valuableNotes = createDemoNotes();
+    state.report = null;
+    state.error = null;
+    state.isDemoMode = true;
+    state.status = {
+      cliReady: false,
+      authReady: false,
+      lastSyncAt: null,
+      ai: { configured: false, model: "static-preview" },
+      lastError: { message: error.message }
+    };
+    showNotice(STATIC_PREVIEW_MESSAGE, "warn");
   } finally {
     state.isLoading = false;
     monthLabel.textContent = formatMonth(state.month);
@@ -139,10 +384,18 @@ async function syncNow() {
   try {
     const payload = await api("/api/weread/sync", { method: "POST" });
     state.dashboard = payload.dashboard;
+    state.isDemoMode = false;
     await loadStatus();
     showNotice("已完成微信读书同步。", "success");
   } catch (error) {
-    showNotice(`同步失败：${error.message}`, "error");
+    const connectionIssue = error.message.includes("本地后端") || error.message.includes("连接超时");
+    if (connectionIssue) {
+      if (!state.dashboard) state.dashboard = createDemoDashboard(state.month);
+      state.isDemoMode = true;
+      showNotice(`仍在静态预览：${error.message}`, "warn");
+    } else {
+      showNotice(`同步失败：${error.message}`, "error");
+    }
   } finally {
     state.isSyncing = false;
     render();
@@ -154,9 +407,11 @@ async function loadValuableNotes(force = false) {
   render();
   try {
     state.valuableNotes = await api(`/api/weread/notes/valuable${force ? "?force=1" : ""}`);
+    state.isDemoMode = false;
     showNotice("");
   } catch (error) {
-    showNotice(`高价值笔记读取失败：${error.message}`, "error");
+    state.valuableNotes = createDemoNotes();
+    showNotice(`正在展示高价值笔记样例：${error.message}`, "warn");
   } finally {
     state.isNotesLoading = false;
     render();
@@ -166,6 +421,14 @@ async function loadValuableNotes(force = false) {
 async function generateReport(force = false) {
   state.isReportLoading = true;
   render();
+  if (state.isDemoMode) {
+    state.report = createDemoReport();
+    state.isReportLoading = false;
+    showNotice("已展示静态样例报告。连接本地后端并配置 DeepSeek 后，可生成真实月度复盘。", "warn");
+    render();
+    return;
+  }
+
   try {
     const payload = await api("/api/weread/report/monthly", {
       method: "POST",
@@ -174,9 +437,15 @@ async function generateReport(force = false) {
     state.report = payload.report;
     showNotice(payload.report.cached ? "已读取缓存复盘报告。" : "已生成新的复盘报告。", "success");
   } catch (error) {
-    showNotice(error.message.includes("DeepSeek API Key")
-      ? "DeepSeek API Key 未配置。设置 DEEPSEEK_API_KEY 后即可生成 AI 复盘。"
-      : `报告生成失败：${error.message}`, "error");
+    if (error.message.includes("本地后端") || error.message.includes("连接超时")) {
+      state.isDemoMode = true;
+      state.report = createDemoReport();
+      showNotice(`已切换为样例报告：${error.message}`, "warn");
+    } else {
+      showNotice(error.message.includes("DeepSeek API Key")
+        ? "DeepSeek API Key 未配置。设置 DEEPSEEK_API_KEY 后即可生成 AI 复盘。"
+        : `报告生成失败：${error.message}`, "error");
+    }
   } finally {
     state.isReportLoading = false;
     render();
@@ -190,6 +459,33 @@ function cardMetric(title, value, sub, tone = "green") {
       <strong>${escapeHtml(value)}</strong>
       <small>${escapeHtml(sub)}</small>
     </article>
+  `;
+}
+
+function statusStrip(d) {
+  const syncText = state.isDemoMode ? "未连接本地后端" : formatDateTime(state.status?.lastSyncAt);
+  const sourceText = state.isDemoMode ? "静态样例数据" : "微信读书本地缓存";
+  const apiText = shouldUseLocalApi() ? LOCAL_API_ORIGIN : "同源 Node 服务";
+  const aiText = d.ai?.configured ? `已配置 ${d.ai.model}` : (state.isDemoMode ? "静态样例报告" : "DeepSeek 待配置");
+
+  return `
+    <section class="status-strip" aria-label="数据状态">
+      <div>
+        <span>页面模式</span>
+        <strong>${escapeHtml(sourceText)}</strong>
+        <small>${escapeHtml(apiText)}</small>
+      </div>
+      <div>
+        <span>最近同步</span>
+        <strong>${escapeHtml(syncText)}</strong>
+        <small>${state.isDemoMode ? "真实数据只保存在本机" : "自动缓存到 data/ 目录"}</small>
+      </div>
+      <div>
+        <span>月度报告</span>
+        <strong>${escapeHtml(aiText)}</strong>
+        <small>${state.isDemoMode ? "公开页面不会暴露个人缓存" : "可基于笔记生成复盘"}</small>
+      </div>
+    </section>
   `;
 }
 
@@ -232,7 +528,15 @@ function cover(book, className = "") {
   if (book.cover) {
     return `<img class="book-cover ${className}" src="${escapeHtml(book.cover)}" alt="${escapeHtml(book.title)}封面" loading="lazy" />`;
   }
-  return `<div class="book-cover empty ${className}" aria-hidden="true">${escapeHtml((book.title || "书").slice(0, 1))}</div>`;
+  const tones = ["cover-green", "cover-blue", "cover-amber", "cover-coral"];
+  const seed = [...String(book.title || "书")].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const tone = book.coverTone || tones[seed % tones.length];
+  return `
+    <div class="book-cover empty ${className} ${tone}" aria-hidden="true">
+      <span>${escapeHtml((book.title || "书").slice(0, 1))}</span>
+      <i></i>
+    </div>
+  `;
 }
 
 function bookCard(book) {
@@ -247,6 +551,7 @@ function bookCard(book) {
         <h3>${escapeHtml(book.title)}</h3>
         <p>${escapeHtml(book.author || "未知作者")}</p>
         <small>${escapeHtml(book.reason || "")}</small>
+        ${book.category ? `<em>${escapeHtml(book.category)}</em>` : ""}
         ${guide}
       </div>
     </article>
@@ -276,6 +581,7 @@ function valuableNote(note) {
         <span>${escapeHtml(note.createdAt || "")}</span>
       </div>
       <h3>${escapeHtml(note.title)}</h3>
+      ${note.chapterTitle ? `<small class="chapter-chip">${escapeHtml(note.chapterTitle)}</small>` : ""}
       ${quote ? `<blockquote>${escapeHtml(quote)}</blockquote>` : ""}
       ${idea ? `<p>${escapeHtml(idea)}</p>` : ""}
     </article>
@@ -314,6 +620,8 @@ function dashboardView() {
         </div>
       </article>
     </section>
+
+    ${statusStrip(d)}
 
     <section class="content-grid">
       <article class="panel wide">
@@ -419,11 +727,12 @@ function notesView() {
 
 function reportView() {
   const d = state.dashboard;
-  const aiConfigured = state.status?.ai?.configured || d?.ai?.configured;
+  const aiConfigured = state.isDemoMode || state.status?.ai?.configured || d?.ai?.configured;
+  const reportButton = state.isDemoMode ? "查看样例报告" : (state.isReportLoading ? "生成中" : "生成报告");
   return `
     <section class="page-head">
       <div><span class="section-kicker">Monthly Review</span><h2>${formatMonth(state.month)} 复盘报告</h2></div>
-      <button class="primary-action" data-action="generate-report" type="button">${state.isReportLoading ? "生成中" : "生成报告"}</button>
+      <button class="primary-action" data-action="generate-report" type="button">${reportButton}</button>
     </section>
     <section class="report-shell">
       <article class="panel report-panel">
