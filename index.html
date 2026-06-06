@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>阅读驾驶舱</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-row">
+            <h1>阅读驾驶舱</h1>
+            <span class="leaf-mark" aria-hidden="true"></span>
+          </div>
+          <p id="subtitle">把微信读书变成一张会呼吸的复盘桌面。</p>
+        </div>
+
+        <div class="month-switch" aria-label="月份切换">
+          <button class="icon-button" id="prevMonth" type="button" title="上个月" aria-label="上个月">‹</button>
+          <strong id="monthLabel">2026 年 6 月</strong>
+          <button class="icon-button" id="nextMonth" type="button" title="下个月" aria-label="下个月">›</button>
+        </div>
+
+        <div class="toolbar">
+          <span class="status-dot" id="statusDot">检查中</span>
+          <button class="icon-button" id="syncButton" type="button" title="同步" aria-label="同步">↻</button>
+          <button class="primary-action" id="reportShortcut" type="button"><span>✦</span> 复盘报告</button>
+        </div>
+      </header>
+
+      <nav class="tabs" aria-label="主导航">
+        <button class="tab active" type="button" data-view="dashboard">总览</button>
+        <button class="tab" type="button" data-view="books">重点书本</button>
+        <button class="tab" type="button" data-view="notes">高价值笔记</button>
+        <button class="tab" type="button" data-view="report">复盘报告</button>
+      </nav>
+
+      <section id="notice" class="notice" hidden></section>
+      <section id="app" class="view" aria-live="polite"></section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
