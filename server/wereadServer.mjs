@@ -455,8 +455,13 @@ async function getDashboardForMonth(monthKey) {
   const cache = await readJson(CACHE_FILE, null);
   if (cache?.dashboard && (!monthKey || monthKey === cache.monthKey)) return cache;
 
+  // Check if we already fetched this historical month before
+  const monthCacheFile = path.join(SNAPSHOT_DIR, `month-${monthKey || currentMonthKey()}.json`);
+  const monthCache = await readJson(monthCacheFile, null);
+  if (monthCache?.dashboard) return monthCache;
+
   const raw = await fetchSummaryData(monthKey || currentMonthKey());
-  return {
+  const result = {
     ok: true,
     lastSyncAt: cache?.lastSyncAt || null,
     lastError: cache?.lastError || null,
@@ -464,6 +469,13 @@ async function getDashboardForMonth(monthKey) {
     raw,
     dashboard: await buildDashboard(raw)
   };
+
+  // Cache historical month forever (data won't change)
+  if (monthKey && monthKey < currentMonthKey()) {
+    await writeJson(monthCacheFile, result);
+  }
+
+  return result;
 }
 
 async function statusPayload() {
